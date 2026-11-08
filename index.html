@@ -183,7 +183,8 @@
   var TEST = location.search.indexOf("test") >= 0;
   var IS_TOUCH = (window.matchMedia && matchMedia("(pointer: coarse)").matches) || location.search.indexOf("touch") >= 0; // 핸드폰·태블릿
   var TOUCH_NAMES = { r: "엔진 슬라이더를 위로 끌기", f: "엔진 슬라이더를 아래로 끌기", s: "조이스틱을 아래로(당기기)", w: "조이스틱을 위로(밀기)", a: "조이스틱 왼쪽", d: "조이스틱 오른쪽", q: "◀ 방향 버튼", e: "방향 ▶ 버튼", g: "☰ 메뉴의 바퀴", t: "역추진 버튼", space: "브레이크 버튼", l: "☰ 메뉴의 착륙 연습", y: "☰ 메뉴의 도우미", i: "☰ 메뉴의 점검·시동", u: "☰ 메뉴의 안내", "]": "☰ 메뉴의 플랩 ▼", "[": "☰ 메뉴의 플랩 ▲" };
-  var dynamicObjs = [];                                       // 계속 움직이는 물체 (freezeStatic이 굳히지 않게 모아 둬요)
+  var TOUCHCTL = { on: false, pitch: 0, roll: 0 };            // 폰 조이스틱의 부드러운(-1~1) 입력
+  var dynamicObjs = [];                                     // 계속 움직이는 물체 (freezeStatic이 굳히지 않게 모아 둬요)
   var useStored = !/test|check|demo/.test(location.search);   // 시험 때는 저장된 설정을 쓰지 않아요
   function lsGet(k, d) { try { var v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } }
   function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
@@ -996,6 +997,7 @@
 
   function rampCtl(cur, tgt, dt) { // 키를 누르면 1.5/초로 서서히, 놓으면 2.6/초로 가운데로 (확 움직이지 않아요)
     var r = (tgt * cur < 0 || Math.abs(tgt) > Math.abs(cur)) ? 1.5 : 2.6;
+    if (TOUCHCTL.on) r *= 2.2;  // 손가락이 이미 부드럽게 움직이니 따라가는 속도만 조금 빠르게
     return cur + clamp(tgt - cur, -r * dt, r * dt);
   }
   function update(dt) {
@@ -1007,6 +1009,7 @@
     var pitchIn = ((keys["s"] || keys["arrowdown"]) ? 1 : 0) - ((keys["w"] || keys["arrowup"]) ? 1 : 0);
     var rollIn  = ((keys["d"] || keys["arrowright"]) ? 1 : 0) - ((keys["a"] || keys["arrowleft"]) ? 1 : 0);
     var yawIn   = (keys["q"] ? 1 : 0) - (keys["e"] ? 1 : 0);
+    if (TOUCHCTL.on) { pitchIn = TOUCHCTL.pitch; rollIn = TOUCHCTL.roll; }   // 폰 조이스틱: 손가락 움직인 만큼 비례해서
     if (!S.engineOn) S.throttle = 0; // 엔진이 꺼져 있으면 힘을 낼 수 없어요
     else {
       if (keys["r"]) S.throttle = clamp(S.throttle + 0.5 * dt, 0, 1);
@@ -1652,7 +1655,7 @@
       h = "<div class='rh' style='margin-top:0'>난이도<span class='x' data-close='1' title='닫기 (P)'>✕</span></div>" +
         "<div class='seg'><div class='mo" + (PRO ? "" : " on") + "' data-m='beginner'>🟢 초보자</div><div class='mo" + (PRO ? " on pro" : "") + "' data-m='pro'>🔴 프로</div></div>" +
         "<div class='seg-desc'>" + (PRO ? "바퀴 · 플랩 · 브레이크 전부 직접, 안내 상자 없음, 엄격한 착륙, 점수 ×1.5" : "도우미가 바퀴 · 플랩 · 브레이크를 해 주고, 안내 상자가 알려 줘요") + "</div>" +
-        "<div class='rh'>비행 선택 <span style='font-weight:400;letter-spacing:0'>· 숫자 키나 클릭</span></div>" +
+        "<div class='rh'>비행 선택 <span style='font-weight:400;letter-spacing:0'>· " + (IS_TOUCH ? "눌러서 선택" : "숫자 키나 클릭") + "</span></div>" +
         "<div class='ro feat' data-r='4'><span class='no'>4</span><span class='nm'>전 과정 비행<small>게이트에서 게이트까지</small></span><span class='lv e'>추천</span></div>";
       ROUTES.forEach(function (r, i) {
         var cls = r.level === "쉬움" ? "e" : (r.level === "보통" ? "m" : "h");
@@ -1827,15 +1830,14 @@
     if (S.spoiler) chips.push("<span class='chip warn'>스포일러</span>");
     if (!S.air && S.brake > 0) chips.push("<span class='chip warn'>브레이크</span>");
     if (S.reverse) chips.push("<span class='chip warn'>역추진</span>");
-    chips.push("<span class='chip " + (PRO ? "warn" : "acc") + "'>" + (PRO ? "프로" : "초보자") + "<i>O</i></span>");
-    chips.push("<span class='chip'>" + TODS[TOD].name + "<i>.</i></span>");
+    if (!IS_TOUCH) { chips.push("<span class='chip " + (PRO ? "warn" : "acc") + "'>" + (PRO ? "프로" : "초보자") + "<i>O</i></span>"); chips.push("<span class='chip'>" + TODS[TOD].name + "<i>.</i></span>"); }
     if (WX > 0) { // 바람: 어느 쪽으로 밀리는지 화살표로 (위=기수 쪽으로 밀어줘요)
       _cf.set(0, 0, -1).applyQuaternion(plane.quaternion); var hl0 = Math.hypot(_cf.x, _cf.z) || 1, hx0 = _cf.x / hl0, hz0 = _cf.z / hl0;
       var fw0 = WIND.vx * hx0 + WIND.vz * hz0, rt0 = WIND.vx * (-hz0) + WIND.vz * hx0, ang0 = Math.round(Math.atan2(rt0, fw0) / (Math.PI / 4));
       chips.push("<span class='chip warn'>바람 " + WIND.spd + "m/s " + ["↑", "↗", "→", "↘", "↓", "↙", "←", "↖", "↑"][((ang0 % 8) + 8) % 8] + "</span>");
     }
-    chips.push("<span class='chip " + (assist ? "ok" : "") + "'>도우미 " + (assist ? "ON" : "OFF") + "<i>Y</i></span>");
-    if (prNow < PR_MAX - 0.01) chips.push("<span class='chip gold'>화질 " + Math.round(prNow / PR_MAX * 100) + "%</span>");
+    if (!IS_TOUCH) chips.push("<span class='chip " + (assist ? "ok" : "") + "'>도우미 " + (assist ? "ON" : "OFF") + "<i>Y</i></span>");
+    if (!IS_TOUCH && prNow < PR_MAX - 0.01) chips.push("<span class='chip gold'>화질 " + Math.round(prNow / PR_MAX * 100) + "%</span>");
     var h = chips.join("");
     if (h !== lastStatus) { elStatus.innerHTML = h; lastStatus = h; }
   }
@@ -3184,73 +3186,90 @@
   if (location.search.indexOf("errcheck") >= 0) { // 화면이 실제로 돌아가는 동안 숨은 오류가 있는지 확인
     setTimeout(function () { document.title = "ERRCHECK errs=" + window.__errs.length + " " + window.__errs.slice(0, 3).join(" ; ") + " frames=" + frameN + " pro=" + PRO + " cam=" + camMode + " yaw=" + viewYaw.toFixed(2) + " pitch=" + viewPitch.toFixed(2) + " keysX=" + !!keys["x"]; }, 7000);
   }
-  // ---------- 핸드폰·태블릿 터치 조작: 화면 위 조이스틱과 버튼이 키보드 입력을 대신 눌러 줘요 ----------
+  // ---------- 핸드폰·태블릿 화면: 컴퓨터와 다르게 따로 구성해요 (조이스틱은 손가락 움직임만큼 부드럽게, 버튼은 최소로) ----------
   (function () {
     if (!IS_TOUCH) return;
     document.body.classList.add("touch");
+    var SA = "env(safe-area-inset-";
     var st = document.createElement("style");
     st.textContent = ".tc{position:fixed;z-index:40;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}" +
-      ".tb{display:flex;align-items:center;justify-content:center;text-align:center;color:#eef4fb;font:700 13px/1.15 'Segoe UI','Malgun Gothic',system-ui,sans-serif;background:linear-gradient(180deg,rgba(40,60,90,.72),rgba(16,26,44,.72));border:1px solid rgba(255,255,255,.28);border-radius:16px;box-shadow:0 4px 14px rgba(0,0,0,.35);backdrop-filter:blur(4px)}" +
+      ".tb{display:flex;align-items:center;justify-content:center;text-align:center;color:#eef4fb;font:700 13px/1.15 'Segoe UI','Malgun Gothic',system-ui,sans-serif;background:linear-gradient(180deg,rgba(40,60,90,.5),rgba(16,26,44,.5));border:1px solid rgba(255,255,255,.22);border-radius:16px;box-shadow:0 2px 8px rgba(0,0,0,.25)}" +
       ".tb.on,.tb:active{background:linear-gradient(180deg,rgba(76,201,255,.75),rgba(30,120,170,.75));color:#04263a}" +
-      "body.touch #minimap{right:auto!important;left:174px;bottom:14px!important;width:96px!important;height:96px!important}body.touch #ils{right:auto!important;left:174px;bottom:116px!important;width:80px!important;height:80px!important}#tj{left:20px;bottom:18px;width:136px;height:136px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.10),rgba(16,26,44,.55));border:1px solid rgba(255,255,255,.3)}" +
-      "#tj i{position:absolute;left:50%;top:50%;width:56px;height:56px;margin:-28px 0 0 -28px;border-radius:50%;background:rgba(76,201,255,.65);border:2px solid rgba(255,255,255,.7)}" +
-      "#tj b{position:absolute;left:0;right:0;text-align:center;color:rgba(255,255,255,.55);font:700 11px 'Malgun Gothic',sans-serif}" +
-      "#tmenu{right:12px;top:66px}#tmenu .tb{width:54px;height:40px;font-size:18px}" +
-      "#tpanel{right:12px;top:112px;width:236px;max-height:calc(100vh - 124px);overflow-y:auto;display:none;grid-template-columns:repeat(3,1fr);gap:6px;padding:8px;background:rgba(10,16,28,.82);border-radius:16px;border:1px solid rgba(255,255,255,.2)}#tpanel .tb{height:42px;font-size:12px}" +
-      "#trot{left:0;top:0;right:0;bottom:0;display:none;align-items:center;justify-content:center;background:rgba(6,10,20,.88);color:#fff;font:700 20px 'Malgun Gothic',sans-serif;text-align:center;z-index:90}";
+      "#tj{left:calc(" + SA + "left,0px) + 18px);bottom:calc(" + SA + "bottom,0px) + 16px);width:150px;height:150px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.08),rgba(16,26,44,.45));border:1px solid rgba(255,255,255,.28)}" +
+      "#tj i{position:absolute;left:50%;top:50%;width:58px;height:58px;margin:-29px 0 0 -29px;border-radius:50%;background:rgba(76,201,255,.6);border:2px solid rgba(255,255,255,.75)}" +
+      "#tj b{position:absolute;color:rgba(255,255,255,.45);font:700 13px sans-serif}" +
+      "#tmenu{right:calc(" + SA + "right,0px) + 12px);top:calc(" + SA + "top,0px) + 8px)}#tmenu .tb{width:46px;height:38px;font-size:18px}" +
+      "#tpro{right:calc(" + SA + "right,0px) + 64px);top:calc(" + SA + "top,0px) + 8px);display:none;gap:6px}#tpro .tb{width:50px;height:38px;font-size:12px}" +
+      "#tpanel{right:calc(" + SA + "right,0px) + 12px);top:calc(" + SA + "top,0px) + 52px);width:250px;max-height:calc(100vh - 64px);overflow-y:auto;display:none;grid-template-columns:repeat(3,1fr);gap:6px;padding:8px;background:rgba(10,16,28,.88);border-radius:16px;border:1px solid rgba(255,255,255,.2)}#tpanel .tb{height:44px;font-size:12.5px}" +
+      "#tthr{right:calc(" + SA + "right,0px) + 14px);bottom:calc(" + SA + "bottom,0px) + 16px);width:68px;height:150px;overflow:hidden}" +
+      "#tbrk{right:calc(" + SA + "right,0px) + 92px);bottom:calc(" + SA + "bottom,0px) + 16px);width:72px;height:72px;border-radius:50%;font-size:14px}" +
+      "#trev{right:calc(" + SA + "right,0px) + 92px);bottom:calc(" + SA + "bottom,0px) + 96px);width:72px;height:50px;display:none}" +
+      "#trot{left:0;top:0;right:0;bottom:0;display:none;align-items:center;justify-content:center;background:rgba(6,10,20,.88);color:#fff;font:700 20px 'Malgun Gothic',sans-serif;text-align:center;z-index:90}" +
+      // 컴퓨터용 요소는 숨기고, 남는 것도 작게
+      "body.touch kbd{display:none}body.touch #tune,body.touch #help,body.touch #route.slim,body.touch #credit,body.touch #phase{display:none!important}" +
+      "body.touch #title{left:calc(" + SA + "left,0px) + 12px);top:5px;padding:0;background:none;border:0;box-shadow:none;font-size:10px;font-weight:600;opacity:.55;gap:3px}body.touch #title .logo{font-size:10px}body.touch #title small{font-size:9px}" +
+      "body.touch #route.mini{left:calc(" + SA + "left,0px) + 12px);top:22px;padding:5px 10px;min-width:0;font-size:11px}body.touch #route.mini .bar{margin:4px 0 3px}" +
+      "body.touch #guide{top:8px;min-width:0;width:min(46vw,380px);padding:3px 12px 5px;border-radius:12px}body.touch #guide .gs{display:none}body.touch #guide .gt{font-size:13px;line-height:1.35}" +
+      "body.touch #hud{padding:3px 10px;gap:8px}body.touch #hud > div:nth-child(3),body.touch #state{display:none}" +
+      "body.touch #bottombar{bottom:calc(" + SA + "bottom,0px) + 8px);max-width:calc(100vw - 400px)}" +
+      "body.touch #minimap{left:calc(" + SA + "left,0px) + 178px)!important;right:auto!important;bottom:calc(" + SA + "bottom,0px) + 14px)!important;width:84px!important;height:84px!important;opacity:.85}" +
+      "body.touch #ils{left:calc(" + SA + "left,0px) + 178px)!important;right:auto!important;bottom:104px!important;width:80px!important;height:80px!important}";
     document.head.appendChild(st);
     function ev(type, k) { window.dispatchEvent(new KeyboardEvent(type, { key: k, bubbles: true })); }
     function mk(id, html, css) { var d = document.createElement("div"); d.id = id; d.className = "tc"; d.style.cssText = css || ""; if (html) d.innerHTML = html; document.body.appendChild(d); return d; }
-    function hold(label, key, css) { // 누르고 있는 동안 키가 눌린 상태
-      var b = mk("th" + key.charCodeAt(0), label, css); b.classList.add("tb"); var pid = -1;
+    function hold(id, label, key) { // 누르고 있는 동안 키가 눌린 상태
+      var b = mk(id, label, ""); b.classList.add("tb"); var pid = -1;
       b.addEventListener("pointerdown", function (e) { e.preventDefault(); pid = e.pointerId; b.setPointerCapture(pid); b.classList.add("on"); ev("keydown", key); });
       function up() { if (pid < 0) return; pid = -1; b.classList.remove("on"); ev("keyup", key); }
       b.addEventListener("pointerup", up); b.addEventListener("pointercancel", up); b.addEventListener("lostpointercapture", up);
+      return b;
     }
     function tap(parent, label, key, fn) {
       var b = document.createElement("div"); b.className = "tb"; b.innerHTML = label; parent.appendChild(b);
       b.addEventListener("pointerdown", function (e) { e.preventDefault(); if (fn) fn(); else { ev("keydown", key); ev("keyup", key); } });
     }
-    // 조이스틱: 위로 밀면 기수 내림(W), 아래로 당기면 기수 올림(S), 좌우는 기울이기(A/D)
-    var tj = mk("tj", "<b style='top:6px'>밀기=내림</b><b style='bottom:6px'>당기기=올림</b><i></i>"), knob = tj.querySelector("i"), jid = -1, jk = { w: false, s: false, a: false, d: false };
-    function jset(k, v) { if (jk[k] !== v) { jk[k] = v; ev(v ? "keydown" : "keyup", k); } }
+    // 조이스틱: 손가락을 처음 댄 곳이 가운데(0)예요. 움직인 만큼만 비례해서 조종하니 갑자기 확 변하지 않아요.
+    // 위로 밀면 기수 내림, 아래로 당기면 기수 올림, 좌우는 기울이기(땅에서는 핸들)
+    var tj = mk("tj", "<b style='top:4px;left:50%;margin-left:-6px'>▲</b><b style='bottom:4px;left:50%;margin-left:-6px'>▼</b><b style='left:8px;top:50%;margin-top:-9px'>◀</b><b style='right:8px;top:50%;margin-top:-9px'>▶</b><i></i>"), knob = tj.querySelector("i"), jid = -1, ox = 0, oy = 0, JR = 56;
+    function jcurve(x) { var a = Math.abs(x), dz = 0.08; if (a < dz) return 0; a = Math.min(1, (a - dz) / (1 - dz)); return (x < 0 ? -1 : 1) * Math.pow(a, 1.8); } // 가운데 근처는 아주 섬세하게
     function jmove(e) {
-      var r = tj.getBoundingClientRect(), dx = (e.clientX - r.left - r.width / 2) / (r.width / 2), dy = (e.clientY - r.top - r.height / 2) / (r.height / 2), m = Math.hypot(dx, dy);
-      if (m > 1) { dx /= m; dy /= m; } knob.style.transform = "translate(" + dx * 42 + "px," + dy * 42 + "px)";
-      jset("w", dy < -0.3); jset("s", dy > 0.3); jset("a", dx < -0.3); jset("d", dx > 0.3);
+      var dx = (e.clientX - ox) / JR, dy = (e.clientY - oy) / JR, m = Math.hypot(dx, dy);
+      if (m > 1) { dx /= m; dy /= m; }
+      knob.style.transform = "translate(" + dx * 46 + "px," + dy * 46 + "px)";
+      TOUCHCTL.on = true; TOUCHCTL.pitch = jcurve(dy); TOUCHCTL.roll = jcurve(dx);
     }
-    tj.addEventListener("pointerdown", function (e) { e.preventDefault(); jid = e.pointerId; tj.setPointerCapture(jid); jmove(e); });
+    tj.addEventListener("pointerdown", function (e) { e.preventDefault(); jid = e.pointerId; tj.setPointerCapture(jid); ox = e.clientX; oy = e.clientY; jmove(e); });
     tj.addEventListener("pointermove", function (e) { if (e.pointerId === jid) jmove(e); });
-    function jend(e) { if (e.pointerId !== jid) return; jid = -1; knob.style.transform = ""; jset("w", false); jset("s", false); jset("a", false); jset("d", false); }
+    function jend(e) { if (e.pointerId !== jid) return; jid = -1; knob.style.transform = ""; TOUCHCTL.on = false; TOUCHCTL.pitch = 0; TOUCHCTL.roll = 0; }
     tj.addEventListener("pointerup", jend); tj.addEventListener("pointercancel", jend);
-    // 오른쪽: 엔진(R/F), 방향 페달(Q/E), 브레이크(Space), 역추진(T)
-    // 엔진 출력 슬라이더: 손가락을 위아래로 끌어서 정해요 (지금 출력이 표시돼요)
-    var thr = mk("tthr", "<div style='position:absolute;left:0;right:0;top:4px;text-align:center;font:700 11px sans-serif;color:#cfe8ff;z-index:2;pointer-events:none'>엔진</div><div id='tthf' style='position:absolute;left:6px;right:6px;bottom:6px;height:0;border-radius:10px;background:linear-gradient(0deg,#1f9d6a,#4cc9ff);pointer-events:none'></div>", "right:14px;bottom:16px;width:62px;height:114px;overflow:hidden");
-    thr.classList.add("tb"); var thf = thr.querySelector("#tthf"), tid = -1;
-    function tset(e) { var r = thr.getBoundingClientRect(), v = 1 - (e.clientY - r.top - 6) / (r.height - 12); v = Math.max(0, Math.min(1, v)); if (S.engineOn) S.throttle = v; }
-    thr.addEventListener("pointerdown", function (e) { e.preventDefault(); tid = e.pointerId; thr.setPointerCapture(tid); tset(e); });
-    thr.addEventListener("pointermove", function (e) { if (e.pointerId === tid) tset(e); });
+    // 엔진 슬라이더: 손가락을 댄 자리에서 위로 끌면 올라가고 아래로 끌면 내려가요 (처음 댈 때 값이 튀지 않아요)
+    var thr = mk("tthr", "<div style='position:absolute;left:0;right:0;top:5px;text-align:center;font:700 11px sans-serif;color:#cfe8ff;z-index:2;pointer-events:none'>엔진</div><div id='tthf' style='position:absolute;left:6px;right:6px;bottom:6px;height:0;border-radius:10px;background:linear-gradient(0deg,#1f9d6a,#4cc9ff);pointer-events:none'></div><div id='tthv' style='position:absolute;left:0;right:0;bottom:8px;text-align:center;font:700 13px sans-serif;color:#fff;z-index:2;pointer-events:none'></div>", "");
+    thr.classList.add("tb"); var thf = thr.querySelector("#tthf"), thv = thr.querySelector("#tthv"), tid = -1, ty0 = 0, tv0 = 0, TH = 150 - 12;
+    thr.addEventListener("pointerdown", function (e) { e.preventDefault(); tid = e.pointerId; thr.setPointerCapture(tid); ty0 = e.clientY; tv0 = S.throttle; });
+    thr.addEventListener("pointermove", function (e) { if (e.pointerId !== tid) return; var v = Math.max(0, Math.min(1, tv0 + (ty0 - e.clientY) / (TH * 0.85))); if (S.engineOn) S.throttle = v; });
     function tend(e) { if (e.pointerId === tid) tid = -1; } thr.addEventListener("pointerup", tend); thr.addEventListener("pointercancel", tend);
-    (function sync() { thf.style.height = Math.round(S.throttle * (114 - 12)) + "px"; requestAnimationFrame(sync); })();
-    hold("브레이크", " ", "right:82px;bottom:16px;width:62px;height:54px");
-    hold("역추진", "t", "right:82px;bottom:76px;width:62px;height:54px");
-    hold("◀ 방향", "q", "right:150px;bottom:16px;width:62px;height:54px");
-    hold("방향 ▶", "e", "right:150px;bottom:76px;width:62px;height:54px");
-    // 메뉴: 바퀴, 플랩, 스포일러, 시점 같은 한 번 누르는 기능들
+    (function sync() { thf.style.height = Math.round(S.throttle * TH) + "px"; thv.textContent = Math.round(S.throttle * 100) + "%"; requestAnimationFrame(sync); })();
+    // 브레이크(항상), 역추진·바퀴·플랩 빠른 버튼(프로 모드에서만)
+    hold("tbrk", "브레이크", " ");
+    hold("trev", "역추진", "t");
+    var pro = mk("tpro", "", "display:none"); pro.style.display = "none";
+    tap(pro, "바퀴", "g"); tap(pro, "플랩 ▼", "]"); tap(pro, "플랩 ▲", "[");
+    setInterval(function () { document.getElementById("trev").style.display = PRO ? "flex" : "none"; pro.style.display = PRO ? "flex" : "none"; }, 400);
+    // 메뉴: 자주 안 쓰는 기능 모음
     var menu = mk("tmenu", "", ""), mb = document.createElement("div"); mb.className = "tb"; mb.textContent = "☰"; menu.appendChild(mb);
     var panel = mk("tpanel", "", ""), open = false;
     mb.addEventListener("pointerdown", function (e) { e.preventDefault(); open = !open; panel.style.display = open ? "grid" : "none"; });
-    tap(panel, "바퀴 올/내림", "g"); tap(panel, "플랩 ▲", "["); tap(panel, "플랩 ▼", "]");
-    tap(panel, "스포일러", "b"); tap(panel, "시점 바꾸기", "v"); tap(panel, "낮·밤", ".");
-    tap(panel, "도우미 켜/끔", "y"); tap(panel, "비행 선택", "p"); tap(panel, "착륙 연습", "l");
-    tap(panel, "점검·시동", "i"); tap(panel, "지도 켜/끔", "n"); tap(panel, "프로/초보", "o");
-    tap(panel, "안내 켜/끔", "u"); tap(panel, "처음부터", "enter"); tap(panel, "설명서", "/");
-    tap(panel, "소리 켜/끔", "m"); tap(panel, "전체화면", "", function () { var el = document.documentElement; (el.requestFullscreen || el.webkitRequestFullscreen || function () {}).call(el); try { screen.orientation.lock("landscape"); } catch (e) {} });
-    tap(panel, "기록·과제", "", function () { toggleRecords(); }); tap(panel, "기체·날씨", "", function () { showStart(); });
-    tap(panel, "뒤돌아보기", "", function () { ev("keydown", "x"); setTimeout(function () { ev("keyup", "x"); }, 1500); });
+    function close() { open = false; panel.style.display = "none"; }
+    tap(panel, "시점 바꾸기", "v"); tap(panel, "바퀴", "g"); tap(panel, "스포일러", "b");
+    tap(panel, "플랩 ▼", "]"); tap(panel, "플랩 ▲", "["); tap(panel, "착륙 연습", "l");
+    tap(panel, "비행 선택", "p", function () { ev("keydown", "p"); ev("keyup", "p"); close(); }); tap(panel, "도우미 켜/끔", "y"); tap(panel, "점검·시동", "i");
+    tap(panel, "낮·밤", "."); tap(panel, "기체·날씨", "", function () { close(); showStart(); }); tap(panel, "기록·과제", "", function () { close(); toggleRecords(); });
+    tap(panel, "설명서", "", function () { close(); toggleManual(); }); tap(panel, "처음부터", "enter", function () { ev("keydown", "enter"); ev("keyup", "enter"); close(); });
+    tap(panel, "전체화면", "", function () { var el = document.documentElement; (el.requestFullscreen || el.webkitRequestFullscreen || function () {}).call(el); try { screen.orientation.lock("landscape"); } catch (e) {} });
+    var crd = document.createElement("div"); crd.style.cssText = "grid-column:1/-1;font-size:10px;line-height:1.4;color:#9fb3ca;text-align:center;padding-top:4px"; crd.textContent = "엔진 소리: Airplane Prop Loop by jakobthiesen (CC BY 3.0, OpenGameArt.org)"; panel.appendChild(crd);
     // 빈 화면을 손가락으로 끌면 고개를 돌려요 (조종석에서 둘러보기)
     var lid = -1, lx = 0, ly = 0, cv = renderer.domElement;
-    cv.addEventListener("pointerdown", function (e) { if (lid >= 0) return; lid = e.pointerId; lx = e.clientX; ly = e.clientY; lookHeld = true; });
+    cv.addEventListener("pointerdown", function (e) { if (lid >= 0) return; lid = e.pointerId; lx = e.clientX; ly = e.clientY; lookHeld = true; close(); });
     cv.addEventListener("pointermove", function (e) { if (e.pointerId !== lid) return; lookYawT = Math.max(-Math.PI * 0.97, Math.min(Math.PI * 0.97, lookYawT - (e.clientX - lx) * 0.006)); lookPitchT = Math.max(-1.2, Math.min(1.2, lookPitchT - (e.clientY - ly) * 0.006)); lx = e.clientX; ly = e.clientY; });
     function lend(e) { if (e.pointerId !== lid) return; lid = -1; lookHeld = false; lookYawT = 0; lookPitchT = 0; }
     cv.addEventListener("pointerup", lend); cv.addEventListener("pointercancel", lend);
@@ -3258,6 +3277,19 @@
     var rot = mk("trot", "핸드폰을 가로로 돌려 주세요 ↻<br><span style='font-size:14px;font-weight:400'>가로 화면에서 더 잘 보여요</span>");
     function chk() { rot.style.display = innerHeight > innerWidth ? "flex" : "none"; } chk(); addEventListener("resize", chk);
     document.addEventListener("gesturestart", function (e) { e.preventDefault(); });
+    // 폰용 짧은 설명서 (컴퓨터용 설명서는 키보드 이야기라서 바꿔요)
+    var dd = function (t, b, o) { return "<details" + (o ? " open" : "") + "><summary>" + t + "</summary><p>" + b + "</p></details>"; };
+    elManual.innerHTML = "<div class='close' id='mclose' style='font-size:16px;padding:4px 0'>✕ 닫기 (읽는 동안 비행은 멈춰 있어요)</div><h2>📖 핸드폰 조종 설명서</h2>" +
+      dd("🕹 왼쪽 조이스틱", "손가락을 대고 <b>살살 움직이세요</b>. 움직인 만큼만 반응해요.<br>• 위로 밀기 = 코가 내려가요 (내려가기)<br>• 아래로 당기기 = 코가 올라가요 (떠오르기)<br>• 좌우 = 기울이기 (땅 위에서는 핸들)<br>크게 움직이면 확 움직이니까 <b>살짝만</b> 쓰세요.", true) +
+      dd("🔥 오른쪽 엔진 슬라이더", "손가락을 대고 <b>위로 끌면</b> 엔진이 세져서 빨라지고, 아래로 끌면 약해져요. 숫자가 지금 엔진 힘(%)이에요.", true) +
+      dd("🛑 브레이크", "땅 위에서 누르는 동안 멈춰요. 초보자 모드에서는 착륙 뒤에 알아서 도와줘요. (프로 모드에서는 <b>역추진</b>, 바퀴, 플랩 버튼도 화면에 나와요)") +
+      dd("☰ 메뉴", "시점 바꾸기(조종석 ↔ 밖), 바퀴, 플랩, 스포일러, 착륙 연습, <b>비행 선택</b>(링 항로, 4번 = 전 과정), 도우미 켜기/끄기, 낮·밤, 기체·날씨, 기록·과제, 전체화면이 들어 있어요.") +
+      dd("👀 둘러보기", "조종석 시점에서 <b>빈 화면을 손가락으로 끌면</b> 그쪽을 봐요. 손을 떼면 앞으로 돌아와요.") +
+      dd("🎓 초보자 모드", "도우미가 바퀴·플랩·브레이크를 알아서 해 줘요. 위쪽 안내 한 줄을 따라 하면 이륙부터 착륙까지 할 수 있어요.") +
+      dd("🚦 착륙할 때", "활주로 옆 불빛 4개가 <b>흰 2개 + 빨강 2개</b>면 딱 좋은 높이예요. 전부 빨강이면 낮고, 전부 흰색이면 높아요.") +
+      dd("🔊 소리", "소리 크기는 핸드폰 볼륨 버튼으로 조절하세요.") +
+      "<div class='close' id='mclose2' style='font-size:16px;padding:8px 0 2px'>✕ 닫기</div>";
+    ["mclose", "mclose2"].forEach(function (id) { document.getElementById(id).addEventListener("pointerdown", function () { toggleManual(); }); });
   })();
 
   if (IS_TOUCH) { elMsg.style.pointerEvents = "auto"; elMsg.addEventListener("pointerdown", function () { if (elMsg.style.display !== "none") reset(); }); } // 충돌 뒤 상자를 누르면 다시 시작
